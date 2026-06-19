@@ -19,7 +19,6 @@ class PomodoroTimer {
     this.totalCompletedSeconds = 0;
     this.sessionWorkSeconds = 0;
     this.sessionBreakSeconds = 0;
-    this.sessionContribution = 0;
     this.showTotal = false;
     this.intervalId = null;
     this.autoTransitionId = null;
@@ -166,6 +165,12 @@ class PomodoroTimer {
     if (newWork > 5999) newWork = 5999;
     if (newBreak > 5999) newBreak = 5999;
 
+    // 未做任何修改，仅关闭面板
+    if (newWork === workTimeSeconds && newBreak === breakTimeSeconds) {
+      this.el.btnSettings.textContent = '设置';
+      return;
+    }
+
     workTimeSeconds = newWork;
     breakTimeSeconds = newBreak;
 
@@ -173,7 +178,6 @@ class PomodoroTimer {
     if (this.mode === Mode.WORK && (this.state === State.RUNNING || this.state === State.PAUSED)) {
       const elapsed = this.sessionWorkSeconds - this.remainingSeconds;
       this.totalCompletedSeconds += elapsed;
-      this.sessionContribution += elapsed;
     }
 
     // 倒计时从新时长重新开始
@@ -207,7 +211,6 @@ class PomodoroTimer {
     warmupAudio(); // 在用户手势中预热 AudioContext，避免 autoplay 拦截
     // 仅在全新启动（非暂停恢复）时记录本周期原始时长
     if (this.state !== State.PAUSED) {
-      this.sessionContribution = 0;
       if (this.mode === Mode.WORK) {
         this.sessionWorkSeconds = this.totalSeconds;
       } else {
@@ -235,7 +238,6 @@ class PomodoroTimer {
     this.mode = Mode.WORK;
     this.remainingSeconds = this.totalSeconds;
     this.setUIForState();
-    this.formatStatDisplay();
     this.updateDisplay();
   }
 
@@ -246,12 +248,10 @@ class PomodoroTimer {
     if (this.mode === Mode.WORK && this.state !== State.FINISHED) {
       const elapsed = Math.max(0, this.sessionWorkSeconds - this.remainingSeconds);
       this.totalCompletedSeconds += elapsed;
-      this.sessionContribution += elapsed;
     }
     this.switchMode();
     this.state = State.IDLE;
     this.setUIForState();
-    this.formatStatDisplay();
     this.updateDisplay();
   }
 
@@ -273,7 +273,6 @@ class PomodoroTimer {
     if (this.mode === Mode.WORK) {
       this.completedCount++;
       this.totalCompletedSeconds += this.sessionWorkSeconds;
-      this.sessionContribution += this.sessionWorkSeconds;
     }
     this.formatStatDisplay();
 
