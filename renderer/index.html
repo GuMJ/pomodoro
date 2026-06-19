@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pomodoro</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <!-- 主行 -->
+    <div class="main-row">
+      <div class="left-group">
+        <span class="mode-text" id="modeText">工作</span>
+        <span class="timer-text" id="timerDisplay">
+          <span id="minuteTens">2</span><span id="minuteOnes">5</span><span>:</span><span id="secondTens">0</span><span id="secondOnes">0</span>
+        </span>
+      </div>
+      <div class="right-group">
+        <span class="action-text" id="btnStart">开始</span>
+        <span class="action-text" id="btnPause" style="display:none">暂停</span>
+        <span class="action-text" id="btnReset">重记</span>
+        <span class="action-text" id="btnSkip">跳过</span>
+      </div>
+    </div>
+
+    <!-- 底部栏 -->
+    <div class="bottom-bar">
+      <div class="settings-group">
+        <span class="settings-toggle" id="btnSettings">设置</span>
+        <div class="settings-panel" id="settingsPanel">
+          <span class="settings-label">工作</span>
+          <input class="settings-input" id="workMin" type="text" value="25" maxlength="2" size="2">
+          <span class="settings-colon">:</span>
+          <input class="settings-input" id="workSec" type="text" value="00" maxlength="2" size="2">
+          <span class="settings-label">休息</span>
+          <input class="settings-input" id="breakMin" type="text" value="05" maxlength="2" size="2">
+          <span class="settings-colon">:</span>
+          <input class="settings-input" id="breakSec" type="text" value="00" maxlength="2" size="2">
+        </div>
+      </div>
+      <span class="tomato-label" id="statToggle">🍅 0</span>
+    </div>
+  </div>
+
+  <script src="audio.js"></script>
+  <script src="timer.js"></script>
+</body>
+</html>
