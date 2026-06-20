@@ -195,6 +195,16 @@ class PomodoroTimer {
       this.mode = Mode.WORK;
       this.remainingSeconds = this.totalSeconds;
     }
+
+    // 如果正在运行，重置真实时钟基准并同步主进程托盘计时器
+    if (this.state === State.RUNNING) {
+      this._tickBaseRemaining = this.remainingSeconds;
+      this._tickStartTime = Date.now();
+      window.electronAPI?.trayStart(this.remainingSeconds);
+    } else {
+      window.electronAPI?.trayStop();
+    }
+
     this.updateDisplay();
 
     this.el.btnSettings.textContent = '设置';
@@ -217,10 +227,15 @@ class PomodoroTimer {
         this.sessionBreakSeconds = this.totalSeconds;
       }
     }
+    // 记录起始时间戳，用真实时钟避免 Chromium 后台窗口定时器节流导致倒计时停滞
+    this._tickBaseRemaining = this.remainingSeconds;
+    this._tickStartTime = Date.now();
     this.state = State.RUNNING;
     this.setUIForState();
     this.updateDisplay();
     this.intervalId = setInterval(() => this.tick(), 1000);
+    // 主进程托盘倒计时器（不受 Chromium 后台节流影响）
+    window.electronAPI?.trayStart(this.remainingSeconds);
   }
 
   pause() {
@@ -228,22 +243,26 @@ class PomodoroTimer {
     this.state = State.PAUSED;
     this.setUIForState();
     this.stopTimer();
+    window.electronAPI?.trayStop();
   }
 
   reset() {
     this.cancelAutoTransition();
     this.stopTimer();
+    window.electronAPI?.trayStop();
     // 重记：放弃当前周期进度，回到本轮初始时长；总时长和番茄数不变
     this.state = State.IDLE;
     this.mode = Mode.WORK;
     this.remainingSeconds = this.totalSeconds;
     this.setUIForState();
     this.updateDisplay();
+    drawTrayIcon(Math.floor(this.remainingSeconds / 60));
   }
 
   skip() {
     this.cancelAutoTransition();
     this.stopTimer();
+    window.electronAPI?.trayStop();
     // 跳过当前工作周期：已耗时计入总时长，但不增加番茄数（已完成状态已计入，跳过）
     if (this.mode === Mode.WORK && this.state !== State.FINISHED) {
       const elapsed = Math.max(0, this.sessionWorkSeconds - this.remainingSeconds);
@@ -253,10 +272,13 @@ class PomodoroTimer {
     this.state = State.IDLE;
     this.setUIForState();
     this.updateDisplay();
+    drawTrayIcon(Math.floor(this.remainingSeconds / 60));
   }
 
   tick() {
-    this.remainingSeconds--;
+    // 用真实时钟计算剩余秒数，避免 Chromium 后台窗口定时器节流导致倒计时停滞
+    const elapsed = Math.floor((Date.now() - this._tickStartTime) / 1000);
+    this.remainingSeconds = Math.max(0, this._tickBaseRemaining - elapsed);
     if (this.remainingSeconds <= 0) {
       this.timesUp();
       return;
@@ -278,6 +300,9 @@ class PomodoroTimer {
 
     this.setUIForState();
     this.updateDisplay();
+    window.electronAPI?.trayStop();
+    // 托盘显示 0
+    drawTrayIcon(0);
     playAlarm();
 
     const title = this.mode === Mode.WORK ? '🍅 工作时间结束！' : '☕ 休息时间结束！';
@@ -308,12 +333,7 @@ class PomodoroTimer {
     this.el.secondOnes.textContent = secStr[1];
     this.el.modeText.textContent = MODE_LABEL[this.mode];
     if (this.showTotal) this.formatStatDisplay();
-
-    // 同步菜单栏托盘图标（仅分钟变化时重绘）
-    if (mins !== this._lastTrayMins) {
-      this._lastTrayMins = mins;
-      drawTrayIcon(mins);
-    }
+    // 托盘图标由主进程 tray-tick IPC 驱动，此处不再触发
   }
 }
 
@@ -366,3 +386,16 @@ if ('Notification' in window && Notification.permission === 'default') {
 }
 
 const pomodoro = new PomodoroTimer();
+
+// ── 托盘图标由主进程 tick 驱动（不受 Chromium 后台节流影响）──
+let _lastTrayMins = -1;
+if (window.electronAPI?.onTrayTick) {
+  window.electronAPI.onTrayTick((mins) => {
+    if (mins !== _lastTrayMins) {
+      _lastTrayMins = mins;
+      drawTrayIcon(mins);
+    }
+  });
+}
+// 初始托盘图标
+drawTrayIcon(Math.floor(pomodoro.remainingSeconds / 60));

@@ -10,12 +10,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Architecture
 
 ```
-main.js          → Electron main process: BrowserWindow, Tray (menu bar countdown), IPC handlers
-preload.js       → contextBridge: exposes `window.electronAPI.{sendNotification, updateTray}`
+main.js          → Electron main process: BrowserWindow, 独立托盘倒计时器 (setInterval), IPC handlers
+preload.js       → contextBridge: exposes `window.electronAPI.{sendNotification, updateTray, trayStart, trayStop, onTrayTick}`
 renderer/
   index.html     → DOM: main-row (mode text + timer digits + action buttons) + bottom-bar (settings panel + tomato stat)
   style.css      → Neon bar theme: CSS variables on :root, max-width slide animation for settings panel
-  timer.js       → PomodoroTimer class — state machine, core logic (~300 lines)
+  timer.js       → PomodoroTimer class — state machine, wall-clock tick, tray sync (~400 lines)
   audio.js       → Web Audio API 8-bit alarm: module-level ALARM_NOTES constant, warmupAudio(), playAlarm()
 ```
 
@@ -30,12 +30,15 @@ Mode:  WORK ⇄ BREAK
 
 `workTimeSeconds` / `breakTimeSeconds` are **module-level** variables (not class fields) — mutated by `applySettings()`. `totalSeconds` is a computed getter that reads them based on current mode.
 
+**Wall-clock timing**：计时使用 `_tickStartTime` / `_tickBaseRemaining` 记录真实时钟基准，`tick()` 用 `Date.now()` 计算流逝秒数，而非递减计数器。这确保即使 Chromium 节流 `setInterval`，时间也始终准确。`applySettings()` 在 RUNNING 状态下会重置这两个基准值。
+
 ### Actions & invariants
 
-- **start()**: calls `warmupAudio()` during user gesture to satisfy AudioContext autoplay policy. On fresh start (not resume from pause), records `sessionWorkSeconds` / `sessionBreakSeconds` for elapsed-time tracking.
+- **start()**: calls `warmupAudio()` during user gesture to satisfy AudioContext autoplay policy. Records `_tickBaseRemaining` / `_tickStartTime` for wall-clock tracking. On fresh start (not resume from pause), records `sessionWorkSeconds` / `sessionBreakSeconds`. Calls `electronAPI.trayStart()` to launch main-process tray countdown.
 - **reset() (重记)**: discards current progress, returns to IDLE/WORK at `totalSeconds`. Total time and tomato count are **not** affected.
 - **skip()**: banks elapsed time into `totalCompletedSeconds`, switches mode. No tomato increment.
-- **timesUp()**: increments `completedCount`, adds full `sessionWorkSeconds` to `totalCompletedSeconds`, plays alarm, fires notification, sets 5s auto-transition.
+- **tick()**: wall-clock based — computes `elapsed = floor((Date.now() - _tickStartTime) / 1000)`, sets `remainingSeconds = max(0, _tickBaseRemaining - elapsed)`. Immune to `setInterval` throttling. Tray icon is NOT updated here; it's driven by main-process `tray-tick` IPC.
+- **timesUp()**: increments `completedCount`, adds full `sessionWorkSeconds` to `totalCompletedSeconds`, plays alarm, fires notification, sets 5s auto-transition. Stops main-process tray timer + draws `0` tray.
 - **settings**: cancel-if-unchanged guard (`newWork === workTimeSeconds && newBreak === breakTimeSeconds` → close only). On change, elapsed time from current session is banked before resetting to new duration.
 
 ### Alarm audio
@@ -59,6 +62,13 @@ Mode:  WORK ⇄ BREAK
 - 深色模式自动反色为白色剪影
 
 **性能优化**：`_lastTrayMins` 守卫，分钟值未变时跳过重绘（~1500 次/周期 → ~25 次）
+
+**托盘倒计时驱动**（v4）：
+- 渲染进程 `start()`/`pause()`/`reset()`/`skip()`/`applySettings()` 时通过 IPC 向主进程同步状态
+- **主进程**独立运行 `setInterval` 倒计时（绝不节流），每秒通过 `tray-tick` IPC 推送给渲染进程
+- 渲染进程 `onTrayTick` 监听器收到分钟数后调用 `drawTrayIcon(mins)` 更新托盘
+- 主进程 `backgroundThrottling = false` 确保渲染进程能及时处理 IPC
+- 渲染进程计时器同步使用真实时钟（wall-clock），避免因节流导致时间偏差
 
 **交互**：
 - 左键托盘 = 切换窗口显示/隐藏（定位左上角 `setPosition(0, tray.getBounds().y + ...)`）

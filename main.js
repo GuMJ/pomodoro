@@ -26,6 +26,9 @@ function createWindow() {
   // 初始定位在屏幕左上角
   mainWindow.setPosition(0, 0);
 
+  // 禁用 Chromium 后台窗口定时器节流，确保托盘倒计时在窗口隐藏后仍准时更新
+  mainWindow.webContents.backgroundThrottling = false;
+
   // 关闭窗口 → 隐藏到后台
   mainWindow.on('close', (event) => {
     if (!isQuitting) {
@@ -72,6 +75,35 @@ function createTray() {
   });
 }
 
+// ── 托盘倒计时器（主进程独立运行，不受 Chromium 后台节流影响）──
+
+let trayTimer = null;
+let trayStartTime = null;
+let trayBaseSeconds = 0;
+
+function startTrayTimer(seconds) {
+  stopTrayTimer();
+  trayBaseSeconds = seconds;
+  trayStartTime = Date.now();
+  const tick = () => {
+    const elapsed = Math.floor((Date.now() - trayStartTime) / 1000);
+    const remaining = Math.max(0, trayBaseSeconds - elapsed);
+    const mins = Math.floor(remaining / 60);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('tray-tick', mins);
+    }
+  };
+  tick(); // 立即推送首次
+  trayTimer = setInterval(tick, 1000);
+}
+
+function stopTrayTimer() {
+  if (trayTimer) {
+    clearInterval(trayTimer);
+    trayTimer = null;
+  }
+}
+
 // IPC: 接收渲染进程 44×44 Canvas 图像 → 缩至 22×22 托盘图标（Retina 抗锯齿）
 ipcMain.handle('update-tray', async (_event, dataUrl) => {
   if (tray) {
@@ -81,6 +113,10 @@ ipcMain.handle('update-tray', async (_event, dataUrl) => {
     tray.setImage(resized);
   }
 });
+
+// IPC: 托盘计时器控制
+ipcMain.handle('tray-start', (_event, seconds) => { startTrayTimer(seconds); });
+ipcMain.handle('tray-stop', () => { stopTrayTimer(); });
 
 // IPC: 桌面通知
 ipcMain.handle('send-notification', async (_event, { title, body }) => {
