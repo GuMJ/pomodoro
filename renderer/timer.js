@@ -308,7 +308,57 @@ class PomodoroTimer {
     this.el.secondOnes.textContent = secStr[1];
     this.el.modeText.textContent = MODE_LABEL[this.mode];
     if (this.showTotal) this.formatStatDisplay();
+
+    // 同步菜单栏托盘图标（仅分钟变化时重绘）
+    if (mins !== this._lastTrayMins) {
+      this._lastTrayMins = mins;
+      drawTrayIcon(mins);
+    }
   }
+}
+
+// ==============================
+// 托盘图标绘制（44×44 Canvas → 主进程缩至 22×22，Retina 抗锯齿）
+// ==============================
+
+const trayCanvas = document.createElement('canvas');
+trayCanvas.width = 44;
+trayCanvas.height = 44;
+const trayCtx = trayCanvas.getContext('2d');
+
+function drawTrayIcon(mins) {
+  const w = trayCanvas.width;
+  const h = trayCanvas.height;
+  const cx = w / 2, cy = h / 2 + 1;
+
+  trayCtx.clearRect(0, 0, w, h);
+
+  // ── 番茄剪影 ──
+  trayCtx.fillStyle = '#000000';
+  trayCtx.beginPath();
+  trayCtx.ellipse(cx, cy, 19, 16, 0, 0, Math.PI * 2);
+  trayCtx.fill();
+
+  // 茎
+  trayCtx.fillRect(cx - 2.5, cy - 19, 5, 7);
+
+  // 两片叶子
+  for (const side of [-1, 1]) {
+    trayCtx.beginPath();
+    trayCtx.ellipse(cx + side * 7, cy - 14, 6.5, 2.8, side * 0.3, 0, Math.PI * 2);
+    trayCtx.fill();
+  }
+
+  // ── 镂空数字 ──
+  trayCtx.globalCompositeOperation = 'destination-out';
+  trayCtx.fillStyle = '#000000';
+  trayCtx.font = 'bold 22px -apple-system, "PingFang SC", sans-serif';
+  trayCtx.textAlign = 'center';
+  trayCtx.textBaseline = 'middle';
+  trayCtx.fillText(String(mins), cx, cy + 1);
+  trayCtx.globalCompositeOperation = 'source-over';
+
+  window.electronAPI?.updateTray(trayCanvas.toDataURL());
 }
 
 if ('Notification' in window && Notification.permission === 'default') {
