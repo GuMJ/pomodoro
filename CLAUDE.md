@@ -44,16 +44,27 @@ Mode:  WORK ⇄ BREAK
 
 ### Tray / 菜单栏图标
 
-- **macOS Sequoia (Apple Silicon) Electron bug**：托盘仅在以下条件全部满足时可见：
-  1. `app.setActivationPolicy('accessory')` — 必须在创建 Tray 之前调用
-  2. Tray 必须在 BrowserWindow 之前创建
-  3. 初始图标必须是 16×16 像素（`createFromBuffer` raw RGBA）
-  4. **禁止**调用 `tray.setTitle()` — 会导致托盘消失
-  5. `tray.setImage()` 仅接受与初始图标同尺寸的图像
-- 渲染进程在 32×32 Canvas 上绘制时间文字 → `toDataURL()` 发主进程 → `nativeImage.createFromDataURL()` → `img.resize({ width: 16, height: 16 })` → `tray.setImage()`
-- Retina 屏上 32→16 缩放在菜单栏中以 @2x 渲染，文字清晰可读
-- 左键托盘 = 切换窗口显示/隐藏，右键托盘 = 退出
-- 窗口关闭按钮 = 隐藏到后台（不退出）
+**macOS Sequoia (Apple Silicon) Electron bug 约束**：
+1. `app.setActivationPolicy('accessory')` — 必须在创建 Tray 之前调用（无 Dock 图标）
+2. Tray 必须在 BrowserWindow 之前创建
+3. 初始图标必须是 16×16 像素（`createFromBuffer` raw RGBA），否则托盘不可见
+4. **禁止**调用 `tray.setTitle()` — 会导致托盘消失
+5. `tray.setImage()` 允许小幅扩大（16→22✅），但不能大幅跳变（16→76❌）
+
+**图标渲染**：
+- 渲染进程 44×44 Canvas 绘制番茄剪影（椭圆 + 茎 + 两片叶子）
+- `destination-out` 复合操作镂空分钟数字
+- `toDataURL()` 发主进程 → `createFromDataURL()` → `resize({ width: 22, height: 22 })` → `setTemplateImage(true)` → `tray.setImage()`
+- 44→22 下采样提供 Retina 抗锯齿
+- 深色模式自动反色为白色剪影
+
+**性能优化**：`_lastTrayMins` 守卫，分钟值未变时跳过重绘（~1500 次/周期 → ~25 次）
+
+**交互**：
+- 左键托盘 = 切换窗口显示/隐藏（定位左上角 `setPosition(0, tray.getBounds().y + ...)`）
+- 右键托盘 = 退出
+- 窗口关闭按钮 = 隐藏到后台（`before-quit` 标记放行真正退出）
+- 启动时窗口初始定位左上角（`setPosition(0, 0)`，macOS 自动卡菜单栏下方）
 
 ### Settings panel
 
